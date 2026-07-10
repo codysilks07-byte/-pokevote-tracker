@@ -1,4 +1,4 @@
-from googleapiclientfrom googleapiclient.discovery import build
+from googleapiclient.discovery import build
 from rapidfuzz import process
 from collections import Counter
 import pandas as pd
@@ -95,6 +95,3 @@ if st.button("Analyze"):
     st.success(f"Downloaded {len(comments)} comments")
 
     st.dataframe(df, use_container_width=True)
-        df.to_csv(index=False),
-        file_name="pokemon_votes.csv"
-    )
