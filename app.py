@@ -10,20 +10,21 @@ st.set_page_config(page_title="PokéVote Tracker")
 st.title("🎮 PokéVote Tracker")
 
 api_key = st.secrets["YOUTUBE_API_KEY"]
-youtube = build("youtube", "v3", developerKey=api_key)
+youtube = build("youtube", developerKey=api_key, version="v3")
 
-pokemon = [
-    "Bulbasaur","Ivysaur","Venusaur","Charmander","Charmeleon","Charizard",
-    "Squirtle","Wartortle","Blastoise","Pikachu","Raichu","Psyduck",
-    "Machamp","Gengar","Ditto","Eevee","Snorlax","Dragonite","Mew",
-    "Mewtwo","Mudkip","Azurill","Spheal","Joltik","Mimikyu",
-    "Garchomp","Greninja","Infernape","Rayquaza","Dialga",
-    "Lugia","Hoopa","Ceruledge","Falinks"
-]
+pokemon_df = pd.read_csv("pokemon.csv")
+aliases_df = pd.read_csv("aliases.csv")
+drawn_df = pd.read_csv("drawn.csv")
 
-pokemon_lower = {p.lower(): p for p in pokemon}
+pokemon = pokemon_df["name"].tolist()
+drawn = set(drawn_df["pokemon"].str.lower())
+
+aliases = {}
+for _, row in aliases_df.iterrows():
+    aliases[row["alias"].lower()] = row["pokemon"]
 
 video_url = st.text_input("YouTube Shorts URL")
+
 
 def get_video_id(url):
     if "/shorts/" in url:
@@ -31,6 +32,7 @@ def get_video_id(url):
     if "v=" in url:
         return url.split("v=")[1].split("&")[0]
     return None
+
 
 if st.button("Analyze"):
 
@@ -61,20 +63,22 @@ if st.button("Analyze"):
 
         text = comment.lower()
 
-        # Exact matches first
-        for name in pokemon_lower:
-            if re.search(r"\b" + re.escape(name) + r"\b", text):
-                votes.append(pokemon_lower[name])
+        # aliases first
+        for alias, real_name in aliases.items():
+            if alias in text:
+                votes.append(real_name)
 
-        # Fuzzy match only longer words
+        # exact matches
+        for name in pokemon:
+            if re.search(r"\b" + re.escape(name.lower()) + r"\b", text):
+                votes.append(name)
+
+        # fuzzy matching
         words = re.findall(r"[a-z]+", text)
 
         for word in words:
 
             if len(word) < 5:
-                continue
-
-            if word in pokemon_lower:
                 continue
 
             match = process.extractOne(word, pokemon)
@@ -84,14 +88,24 @@ if st.button("Analyze"):
 
     leaderboard = Counter(votes)
 
-    df = (
-        pd.DataFrame(
-            leaderboard.items(),
-            columns=["Pokemon", "Votes"]
-        )
-        .sort_values("Votes", ascending=False)
+    df = pd.DataFrame(
+        leaderboard.items(),
+        columns=["Pokemon", "Votes"]
     )
+
+    df["Drawn"] = df["Pokemon"].str.lower().isin(drawn)
+
+    df = df.sort_values("Votes", ascending=False)
 
     st.success(f"Downloaded {len(comments)} comments")
 
     st.dataframe(df, use_container_width=True)
+
+    remaining = df[df["Drawn"] == False]
+
+    if len(remaining):
+        winner = remaining.iloc[0]
+
+        st.success(
+            f"⭐ Recommended Next Pokémon: {winner['Pokemon']} ({winner['Votes']} votes)"
+        )
