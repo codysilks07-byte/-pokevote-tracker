@@ -1,7 +1,8 @@
-from googleapiclient.discovery import build
+from googleapiclientfrom googleapiclient.discovery import build
 from rapidfuzz import process
 from collections import Counter
 import pandas as pd
+import re
 import streamlit as st
 
 st.set_page_config(page_title="PokéVote Tracker")
@@ -13,16 +14,14 @@ youtube = build("youtube", "v3", developerKey=api_key)
 
 pokemon = [
     "Bulbasaur","Ivysaur","Venusaur","Charmander","Charmeleon","Charizard",
-    "Squirtle","Wartortle","Blastoise","Caterpie","Butterfree","Pikachu",
-    "Raichu","Sandshrew","Vulpix","Jigglypuff","Zubat","Oddish","Diglett",
-    "Psyduck","Growlithe","Abra","Machop","Machamp","Geodude","Slowpoke",
-    "Magnemite","Gastly","Haunter","Gengar","Onix","Cubone","Hitmonlee",
-    "Hitmonchan","Lickitung","Koffing","Rhyhorn","Chansey","Scyther",
-    "Magikarp","Gyarados","Lapras","Ditto","Eevee","Vaporeon","Jolteon",
-    "Flareon","Snorlax","Dragonite","Mew","Mewtwo","Mudkip","Treecko",
-    "Torchic","Azurill","Spheal","Joltik","Mimikyu","Garchomp","Lucario",
-    "Greninja","Infernape","Rayquaza","Dialga","Lugia","Hoopa"
+    "Squirtle","Wartortle","Blastoise","Pikachu","Raichu","Psyduck",
+    "Machamp","Gengar","Ditto","Eevee","Snorlax","Dragonite","Mew",
+    "Mewtwo","Mudkip","Azurill","Spheal","Joltik","Mimikyu",
+    "Garchomp","Greninja","Infernape","Rayquaza","Dialga",
+    "Lugia","Hoopa","Ceruledge","Falinks"
 ]
+
+pokemon_lower = {p.lower(): p for p in pokemon}
 
 video_url = st.text_input("YouTube Shorts URL")
 
@@ -44,43 +43,58 @@ if st.button("Analyze"):
         textFormat="plainText"
     )
 
-    comments=[]
+    comments = []
 
     while request:
-        response=request.execute()
+        response = request.execute()
 
         for item in response["items"]:
             comments.append(
                 item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
             )
 
-        request=youtube.commentThreads().list_next(request,response)
+        request = youtube.commentThreads().list_next(request, response)
 
-    votes=[]
+    votes = []
 
     for comment in comments:
 
-        words=comment.replace(","," ").replace("."," ").split()
+        text = comment.lower()
+
+        # Exact matches first
+        for name in pokemon_lower:
+            if re.search(r"\b" + re.escape(name) + r"\b", text):
+                votes.append(pokemon_lower[name])
+
+        # Fuzzy match only longer words
+        words = re.findall(r"[a-z]+", text)
 
         for word in words:
-            match,score,_=process.extractOne(word,pokemon)
 
-            if score>=90:
-                votes.append(match)
+            if len(word) < 5:
+                continue
 
-    leaderboard=Counter(votes)
+            if word in pokemon_lower:
+                continue
 
-    df=pd.DataFrame(
-        leaderboard.items(),
-        columns=["Pokemon","Votes"]
-    ).sort_values("Votes",ascending=False)
+            match = process.extractOne(word, pokemon)
+
+            if match and match[1] >= 95:
+                votes.append(match[0])
+
+    leaderboard = Counter(votes)
+
+    df = (
+        pd.DataFrame(
+            leaderboard.items(),
+            columns=["Pokemon", "Votes"]
+        )
+        .sort_values("Votes", ascending=False)
+    )
 
     st.success(f"Downloaded {len(comments)} comments")
 
-    st.dataframe(df,use_container_width=True)
-
-    st.download_button(
-        "Download CSV",
+    st.dataframe(df, use_container_width=True)
         df.to_csv(index=False),
         file_name="pokemon_votes.csv"
     )
