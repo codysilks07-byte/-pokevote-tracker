@@ -92,14 +92,60 @@ if st.button("Analyze"):
 
     leaderboard = Counter(votes)
 
-    df = pd.DataFrame(
-        leaderboard.items(),
-        columns=["Pokemon", "Votes"]
-    )
+# Skip videos we've already processed
+already = (
+    supabase.table("processed_videos")
+    .select("*")
+    .eq("video_id", video_id)
+    .execute()
+)
 
-    df["Drawn"] = df["Pokemon"].str.lower().isin(drawn)
+if len(already.data) == 0:
 
-    df = df.sort_values("Votes", ascending=False)
+    for pokemon_name, vote_count in leaderboard.items():
+
+        existing = (
+            supabase.table("leaderboard")
+            .select("*")
+            .eq("Pokemon", pokemon_name)
+            .execute()
+        )
+
+        if existing.data:
+
+            current = existing.data[0]["Votes"]
+
+            supabase.table("leaderboard").update(
+                {"Votes": current + vote_count}
+            ).eq(
+                "Pokemon",
+                pokemon_name
+            ).execute()
+
+        else:
+
+            supabase.table("leaderboard").insert(
+                {
+                    "Pokemon": pokemon_name,
+                    "Votes": vote_count
+                }
+            ).execute()
+
+    supabase.table("processed_videos").insert(
+        {"video_id": video_id}
+    ).execute()
+
+rows = (
+    supabase.table("leaderboard")
+    .select("*")
+    .execute()
+)
+
+df = pd.DataFrame(rows.data)
+
+df["Drawn"] = df["Pokemon"].str.lower().isin(drawn)
+
+df = df.sort_values("Votes", ascending=False)
 
     st.success(f"Downloaded {len(comments)} comments")
 
