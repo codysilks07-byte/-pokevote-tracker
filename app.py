@@ -10,12 +10,24 @@ st.set_page_config(page_title="PokéVote Tracker")
 
 st.title("🎮 PokéVote Tracker")
 
-api_key = st.secrets["YOUTUBE_API_KEY"]
-youtube = build("youtube", developerKey=api_key, version="v3")
+# ------------------------
+# API SETUP
+# ------------------------
+
+youtube = build(
+    "youtube",
+    "v3",
+    developerKey=st.secrets["YOUTUBE_API_KEY"]
+)
+
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
 )
+
+# ------------------------
+# LOAD FILES
+# ------------------------
 
 pokemon_df = pd.read_csv("pokemon.csv")
 aliases_df = pd.read_csv("aliases.csv")
@@ -25,23 +37,38 @@ pokemon = pokemon_df["name"].tolist()
 drawn = set(drawn_df["pokemon"].str.lower())
 
 aliases = {}
+
 for _, row in aliases_df.iterrows():
     aliases[row["alias"].lower()] = row["pokemon"]
 
 video_url = st.text_input("YouTube Shorts URL")
 
 
+# ------------------------
+# HELPERS
+# ------------------------
+
 def get_video_id(url):
     if "/shorts/" in url:
         return url.split("/shorts/")[1].split("?")[0]
+
     if "v=" in url:
         return url.split("v=")[1].split("&")[0]
+
     return None
 
+
+# ------------------------
+# MAIN
+# ------------------------
 
 if st.button("Analyze"):
 
     video_id = get_video_id(video_url)
+
+    if not video_id:
+        st.error("Invalid YouTube URL")
+        st.stop()
 
     request = youtube.commentThreads().list(
         part="snippet",
@@ -53,9 +80,11 @@ if st.button("Analyze"):
     comments = []
 
     while request:
+
         response = request.execute()
 
         for item in response["items"]:
+
             comments.append(
                 item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
             )
@@ -68,17 +97,19 @@ if st.button("Analyze"):
 
         text = comment.lower()
 
-        # aliases first
+        # aliases
         for alias, real_name in aliases.items():
+
             if alias in text:
                 votes.append(real_name)
 
         # exact matches
         for name in pokemon:
+
             if re.search(r"\b" + re.escape(name.lower()) + r"\b", text):
                 votes.append(name)
 
-        # fuzzy matching
+        # fuzzy matches
         words = re.findall(r"[a-z]+", text)
 
         for word in words:
@@ -93,70 +124,106 @@ if st.button("Analyze"):
 
     leaderboard = Counter(votes)
 
-# Skip videos we've already processed
-already = (
-    supabase.table("processed_videos")
-    .select("*")
-    .eq("video_id", video_id)
-    .execute()
-)
+    # ----------------------------------
+    # CHECK IF VIDEO ALREADY PROCESSED
+    # ----------------------------------
 
-if len(already.data) == 0:
+    processed = (
+        supabase
+        .table("processed_videos")
+        .select("video_id")
+        .eq("video_id", video_id)
+        .execute()
+    )
 
-    for pokemon_name, vote_count in leaderboard.items():
+    if len(processed.data) == 0:
 
-        existing = (
-            supabase.table("leaderboard")
-            .select("*")
-            .eq("Pokemon", pokemon_name)
+        for pokemon_name, vote_count in leaderboard.items():
+
+            existing = (
+                supabase
+                .table("leaderboard")
+                .select("*")
+                .eq("Pokemon", pokemon_name)
+                .execute()
+            )
+
+            if existing.data:
+
+                current_votes = existing.data[0]["Votes"]
+
+                (
+                    supabase
+                    .table("leaderboard")
+                    .update({
+                        "Votes": current_votes + vote_count
+                    })
+                    .eq("Pokemon", pokemon_name)
+                    .execute()
+                )
+
+            else:
+
+                (
+                    supabase
+                    .table("leaderboard")
+                    .insert({
+                        "Pokemon": pokemon_name,
+                        "Votes": vote_count
+                    })
+                    .execute()
+                )
+
+        (
+            supabase
+            .table("processed_videos")
+            .insert({
+                "video_id": video_id
+            })
             .execute()
         )
 
-        if existing.data:
+        st.success("Added votes from this video!")
 
-            current = existing.data[0]["Votes"]
+    else:
 
-            supabase.table("leaderboard").update(
-                {"Votes": current + vote_count}
-            ).eq(
-                "Pokemon",
-                pokemon_name
-            ).execute()
+        st.info("This video has already been counted.")
 
-        else:
+    # ----------------------------------
+    # LOAD LEADERBOARD
+    # ----------------------------------
 
-            supabase.table("leaderboard").insert(
-                {
-                    "Pokemon": pokemon_name,
-                    "Votes": vote_count
-                }
-            ).execute()
+    rows = (
+        supabase
+        .table("leaderboard")
+        .select("*")
+        .execute()
+    )
 
-    supabase.table("processed_videos").insert(
-        {"video_id": video_id}
-    ).execute()
+    df = pd.DataFrame(rows.data)
 
-rows = (
-    supabase.table("leaderboard")
-    .select("*")
-    .execute()
-)
+    if not df.empty:
 
-df = pd.DataFrame(rows.data)
+        df["Drawn"] = df["Pokemon"].str.lower().isin(drawn)
 
-df["Drawn"] = df["Pokemon"].str.lower().isin(drawn)
-
-df = df.sort_values("Votes", ascending=False)
-
-    st.success(f"Downloaded {len(comments)} comments")
-
-    st.dataframe(df, use_container_width=True)
-
-    remaining = df[df["Drawn"] == False]
-
-    if len(remaining):
-        winner = remaining.iloc[0]
-
-        st.success(
-            f"⭐ Recommended Next Pokémon: {winner['Pokemon']} ({winner['Votes']} votes)"
+        df = df.sort_values(
+            "Votes",
+            ascending=False
         )
+
+        st.success(f"Downloaded {len(comments)} comments")
+
+        st.dataframe(
+            df,
+            use_container_width=True
+        )
+
+        remaining = df[df["Drawn"] == False]
+
+        if len(remaining):
+
+            winner = remaining.iloc[0]
+
+            st.success(
+                f"⭐ Recommended Next Pokémon: {winner['Pokemon']} ({winner['Votes']} votes)"
+            )
