@@ -16,6 +16,7 @@ supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
 )
+
 pokemon_df = pd.read_csv("pokemon.csv")
 aliases_df = pd.read_csv("aliases.csv")
 drawn_df = pd.read_csv("drawn.csv")
