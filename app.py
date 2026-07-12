@@ -88,7 +88,11 @@ if st.button("Analyze"):
                 votes.append(match[0])
 
     leaderboard = Counter(votes)
-
+# Load previous votes if they exist
+if os.path.exists("votes.csv"):
+    total_votes = pd.read_csv("votes.csv")
+else:
+    total_votes = pd.DataFrame(columns=["pokemon", "votes"])
     df = pd.DataFrame(
         leaderboard.items(),
         columns=["Pokemon", "Votes"]
