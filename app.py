@@ -93,10 +93,28 @@ if os.path.exists("votes.csv"):
     total_votes = pd.read_csv("votes.csv")
 else:
     total_votes = pd.DataFrame(columns=["pokemon", "votes"])
-    df = pd.DataFrame(
-        leaderboard.items(),
-        columns=["Pokemon", "Votes"]
-    )
+    new_votes = pd.DataFrame(
+    leaderboard.items(),
+    columns=["pokemon", "votes"]
+)
+
+combined = pd.concat([total_votes, new_votes], ignore_index=True)
+
+combined = (
+    combined
+    .groupby("pokemon", as_index=False)["votes"]
+    .sum()
+    .sort_values("votes", ascending=False)
+)
+
+combined.to_csv("votes.csv", index=False)
+
+df = combined.rename(
+    columns={
+        "pokemon": "Pokemon",
+        "votes": "Votes"
+    }
+)
 
     df["Drawn"] = df["Pokemon"].str.lower().isin(drawn)
 
